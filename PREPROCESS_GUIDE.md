@@ -90,5 +90,5 @@ print(f"Dataset size: {len(dataset)}")
 ## Thống kê ví dụ
 
 Với 5000 ảnh đầu tiên:
-- ~25,000 - 30,000 questions (mỗi ảnh có ~5 câu hỏi)
-- ~250,000 - 300,000 annotations (mỗi câu hỏi có ~10 câu trả lời)
+- ~25,000 questions (mỗi ảnh có ~5 câu hỏi)
+- ~250,000 annotations (mỗi câu hỏi có ~10 câu trả lời)
