@@ -57,5 +57,6 @@ Place your VQA dataset in the `data/` directory. The expected format includes:
 See [PROJECT_ROADMAP.md](PROJECT_ROADMAP.md) for the detailed development plan.
 
 ## Team
-- Quang
-- Thành
+- 523H0173_VoXuanQuang
+_ 523H0178_HoangXuanThanh
+
