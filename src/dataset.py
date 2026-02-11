@@ -66,8 +66,13 @@ class Vocabulary:
             
         Returns:
             List of tokens (words)
+            
+        Note:
+            Uses basic whitespace tokenization for simplicity and speed.
+            For production use, consider NLTK's word_tokenize for better
+            handling of punctuation, contractions, and special cases.
         """
-        # Basic tokenization - can be improved with NLTK
+        # Basic tokenization - lowercase and split on whitespace
         return text.lower().strip().split()
     
     def encode(self, text: str, max_length: Optional[int] = None) -> List[int]:

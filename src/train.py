@@ -227,7 +227,7 @@ class Trainer:
         self,
         num_epochs: int,
         start_epoch: int = 0,
-        scheduler: Optional[optim.lr_scheduler._LRScheduler] = None,
+        scheduler: Optional[object] = None,
     ) -> None:
         """
         Train the model for multiple epochs.
@@ -235,7 +235,7 @@ class Trainer:
         Args:
             num_epochs: Number of epochs to train
             start_epoch: Starting epoch (for resuming training)
-            scheduler: Learning rate scheduler (optional)
+            scheduler: Learning rate scheduler (optional, e.g., StepLR, CosineAnnealingLR)
         """
         print(f"Starting training for {num_epochs} epochs...")
         print(f"Device: {self.device}")
