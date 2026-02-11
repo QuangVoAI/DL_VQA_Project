@@ -68,8 +68,8 @@ class EncoderCNN(nn.Module):
         """
         # Extract features from ResNet
         # Shape: (batch_size, 2048, 1, 1)
-        with torch.no_grad():
-            features = self.resnet(images)
+        # Note: Gradients controlled by requires_grad flags set in freeze/unfreeze methods
+        features = self.resnet(images)
         
         # Reshape: (batch_size, 2048)
         features = features.view(features.size(0), -1)

@@ -114,7 +114,7 @@ class Trainer:
         
         return avg_loss
     
-    def validate(self, epoch: int) -> tuple[float, float]:
+    def validate(self, epoch: int) -> Tuple[float, float]:
         """
         Validate the model.
         

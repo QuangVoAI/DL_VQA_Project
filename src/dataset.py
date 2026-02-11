@@ -129,6 +129,7 @@ class VQADataset(Dataset):
         transform: Optional[callable] = None,
         max_question_length: int = 20,
         answer_to_idx: Optional[Dict[str, int]] = None,
+        split: str = "train",
     ):
         """
         Initialize VQA Dataset.
@@ -141,12 +142,14 @@ class VQADataset(Dataset):
             transform: Torchvision transforms for image preprocessing
             max_question_length: Maximum question length for padding/truncation
             answer_to_idx: Dictionary mapping answers to class indices
+            split: Dataset split ("train", "val", or "test") for image filename formatting
         """
         self.image_dir = image_dir
         self.transform = transform
         self.vocab = vocab
         self.max_question_length = max_question_length
         self.answer_to_idx = answer_to_idx
+        self.split = split
         
         # Load questions
         with open(questions_file, 'r') as f:
@@ -188,8 +191,10 @@ class VQADataset(Dataset):
         question_text = question_data['question']
         
         # Load and preprocess image
-        # Note: Adjust image filename format based on your dataset (COCO uses 12-digit format)
-        image_path = f"{self.image_dir}/COCO_train2014_{image_id:012d}.jpg"
+        # Note: Adjust image filename format based on dataset split
+        # COCO uses format: COCO_{split}2014_{image_id:012d}.jpg
+        image_filename = f"COCO_{self.split}2014_{image_id:012d}.jpg"
+        image_path = f"{self.image_dir}/{image_filename}"
         image = Image.open(image_path).convert('RGB')
         if self.transform:
             image = self.transform(image)
