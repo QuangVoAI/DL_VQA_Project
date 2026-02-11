@@ -220,7 +220,8 @@ class VQADataset(Dataset):
             annotation = self.annotations[question_id]
             # Get most common answer (VQA uses consensus of 10 annotators)
             answers = [ans['answer'] for ans in annotation['answers']]
-            # For now, take the first answer - can be improved with voting
+            # TODO: Implement proper voting/consensus (most frequent answer)
+            # For now, take the first answer as a simplification
             answer_text = answers[0] if answers else ""
             
             if self.answer_to_idx and answer_text in self.answer_to_idx:

@@ -33,6 +33,7 @@ class Trainer:
         device: torch.device,
         checkpoint_dir: str = "../checkpoints",
         print_freq: int = 100,
+        grad_clip: float = 5.0,
     ):
         """
         Initialize Trainer.
@@ -46,6 +47,7 @@ class Trainer:
             device: Device to train on (cuda/cpu)
             checkpoint_dir: Directory to save checkpoints
             print_freq: Frequency of printing training stats
+            grad_clip: Maximum gradient norm for clipping (0 to disable)
         """
         self.model = model
         self.train_loader = train_loader
@@ -55,6 +57,7 @@ class Trainer:
         self.device = device
         self.checkpoint_dir = checkpoint_dir
         self.print_freq = print_freq
+        self.grad_clip = grad_clip
         
         # Create checkpoint directory
         os.makedirs(checkpoint_dir, exist_ok=True)
@@ -99,7 +102,8 @@ class Trainer:
             loss.backward()
             
             # Gradient clipping to prevent exploding gradients
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=5.0)
+            if self.grad_clip > 0:
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.grad_clip)
             
             # Update weights
             self.optimizer.step()

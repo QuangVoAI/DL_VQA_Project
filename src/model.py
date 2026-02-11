@@ -127,6 +127,7 @@ class DecoderRNN(nn.Module):
         self.num_layers = num_layers
         
         # Word embedding for questions
+        # Note: padding_idx=0 assumes PAD token is at index 0 in Vocabulary
         self.word_embed = nn.Embedding(vocab_size, embed_size, padding_idx=0)
         
         # LSTM for question encoding
