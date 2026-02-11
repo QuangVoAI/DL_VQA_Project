@@ -1,0 +1,21 @@
+# Deep Learning Framework
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Data Processing
+numpy>=1.24.0
+Pillow>=9.5.0
+h5py>=3.8.0
+
+# NLP
+nltk>=3.8.0
+
+# Progress & Visualization
+tqdm>=4.65.0
+matplotlib>=3.7.0
+
+# Data Loading
+pycocotools>=2.0.6
+
+# Configuration
+pyyaml>=6.0
