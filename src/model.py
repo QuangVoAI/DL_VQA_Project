@@ -30,7 +30,17 @@ class EncoderCNN(nn.Module):
         super(EncoderCNN, self).__init__()
         
         # Load pretrained ResNet-50
-        resnet = models.resnet50(pretrained=pretrained)
+        # Using weights parameter for compatibility with torchvision >= 0.13
+        if pretrained:
+            try:
+                # Try newer API (torchvision >= 0.13)
+                weights = models.ResNet50_Weights.IMAGENET1K_V1
+                resnet = models.resnet50(weights=weights)
+            except AttributeError:
+                # Fallback to older API for compatibility
+                resnet = models.resnet50(pretrained=True)
+        else:
+            resnet = models.resnet50(weights=None)
         
         # Remove the final fully connected layer
         # ResNet outputs 2048-dim features from avgpool layer

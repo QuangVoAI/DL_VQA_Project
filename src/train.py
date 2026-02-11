@@ -12,7 +12,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import transforms
 from tqdm import tqdm
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from dataset import VQADataset, Vocabulary, build_answer_vocab
 from model import get_model
