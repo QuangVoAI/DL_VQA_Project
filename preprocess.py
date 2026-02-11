@@ -59,7 +59,7 @@ def create_subset(
     print(f"  Total questions: {len(questions)}")
     print(f"  Total annotations: {len(annotations)}")
     
-    # Get unique image IDs from questions
+    # Get unique image IDs from questions (maintaining order)
     image_ids_seen = []
     image_id_set: Set[int] = set()
     
@@ -71,7 +71,7 @@ def create_subset(
             if len(image_ids_seen) >= num_images:
                 break
     
-    # Take first N unique images
+    # Select first N unique images
     selected_image_ids = set(image_ids_seen[:num_images])
     
     print(f"\nSelected {len(selected_image_ids)} unique images")
@@ -180,11 +180,12 @@ def main():
         print("Please download VQA v2.0 dataset first.")
         return
     
-    # Create output directory if it doesn't exist
-    output_dir = os.path.dirname(args.output_questions)
-    if output_dir and not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        print(f"Created output directory: {output_dir}")
+    # Create output directories if they don't exist
+    for output_file in [args.output_questions, args.output_annotations]:
+        output_dir = os.path.dirname(output_file)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+            print(f"Created output directory: {output_dir}")
     
     # Create subset
     create_subset(
