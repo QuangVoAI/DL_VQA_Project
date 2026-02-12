@@ -1,50 +1,68 @@
-# DL_VQA_Project
-Midterm Project of Quang and Thành
+# Overview
+This project is designed for Visual Question Answering (VQA) in Deep Learning. It integrates advanced machine learning models to process and analyze images and questions based on visual content.
 
-## Visual Question Answering with PyTorch
-
-This project implements a Visual Question Answering (VQA) system using PyTorch, combining CNN-based image encoding with LSTM-based question processing.
-
-## Project Structure
-
+# Project Structure
 ```
 DL_VQA_Project/
-├── data/                      # Dataset directory (excluded from git)
-├── checkpoints/               # Model checkpoints (excluded from git)
-├── src/                       # Source code
-│   ├── dataset.py            # Vocabulary & VQADataset classes
-│   ├── model.py              # EncoderCNN & DecoderRNN architectures
-│   └── train.py              # Training loop and utilities
-├── PROJECT_ROADMAP.md         # 2-week development plan
-├── requirements.txt           # Python dependencies
-└── .gitignore                 # Git ignore rules
+│
+├── data/                 # Contains dataset files
+├── notebooks/            # Jupyter notebooks for experimentation
+├── src/                 # Source code for the VQA model
+│   ├── model.py          # Model architecture definitions
+│   ├── train.py          # Training scripts
+│   └── utils.py          # Utility functions
+├── requirements.txt      # Python dependencies
+└── README.md             # Project documentation
 ```
 
-## Setup
+# Quick Start
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/QuangVoAI/DL_VQA_Project.git
+   cd DL_VQA_Project
+   ```
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Start training:
+   ```bash
+   python src/train.py
+   ```
 
-1. Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+# Model Architecture
+The VQA model is built using a combination of CNNs and LSTMs to extract features from images and questions respectively. The output is decoded to generate answers based on learned associations.
 
-2. Download VQA v2.0 dataset and place in `data/` directory
+# Key Components
+- **Data Loader:** Handles loading and preprocessing of the dataset.
+- **Model Training:** Implements training loop with metrics logging.
+- **Inference:** Functionality to make predictions based on new images and questions.
 
-3. Configure paths in `src/train.py`
+# Dependencies
+- TensorFlow 2.x
+- Keras
+- NumPy
+- pandas
+- matplotlib
+- scikit-learn
 
-## Model Architecture
+# Features
+- Ability to train a model on custom datasets.
+- Supports multiple question types.
+- Visualization of training metrics.
 
-- **EncoderCNN**: ResNet-50 backbone for visual feature extraction
-- **DecoderRNN**: LSTM-based question encoder and answer classifier
-- **Answer Prediction**: Classification over top-K most common answers
+# Device Support
+The model can be trained or run on:
+- CPU
+- GPU (NVIDIA)
 
-## Usage
+# Expected Results
+The model is expected to achieve high accuracy on the validation set, with a focus on understanding the correlation between image content and questions.
 
-See `src/train.py` for training configuration and `PROJECT_ROADMAP.md` for detailed development plan.
+# Next Steps
+- Experiment with different model architectures
+- Fine-tune hyperparameters
+- Expand dataset with more images and question types
 
-## Features
-
-- Modular, well-documented code with shape annotations
-- Pretrained ResNet backbone with fine-tuning support
-- Checkpoint saving/loading for training resumption
-- Validation metrics and progress tracking
-- Extensible architecture for attention mechanisms
+# Author
+QuangVoAI, 2026-02-12 06:18:27 UTC
