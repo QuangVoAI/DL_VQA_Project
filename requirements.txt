@@ -5,17 +5,19 @@ torchvision>=0.15.0
 # Data Processing
 numpy>=1.24.0
 Pillow>=9.5.0
-h5py>=3.8.0
 
-# NLP
+# HuggingFace Datasets (auto-download A-OKVQA)
+datasets>=2.14.0
+
+# NLP Metrics
 nltk>=3.8.0
 
 # Progress & Visualization
 tqdm>=4.65.0
 matplotlib>=3.7.0
 
-# Data Loading
-pycocotools>=2.0.6
-
 # Configuration
 pyyaml>=6.0
+
+# Statistical Testing (multi-seed significance)
+scipy>=1.10.0
