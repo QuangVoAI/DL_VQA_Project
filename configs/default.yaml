@@ -44,6 +44,8 @@ train:
   use_amp: false                      # Tắt AMP để tránh lỗi crash trên chip MPS
   num_workers: 0                      # 0 trên macOS (tránh lỗi PIL pickle)
   pin_memory: false                   # Không dùng cho MPS
+  eval_every: 1
+  warmup_epochs: 3
 
 # ── Model Variants ──
 model_variants:

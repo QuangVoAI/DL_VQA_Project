@@ -1,23 +1,17 @@
 """Configuration system using dataclasses + YAML loading."""
 
 from __future__ import annotations
-
-import os
 from dataclasses import dataclass, field, asdict
-from typing import Optional
-
 import yaml
-
 
 @dataclass
 class DataConfig:
     """Cấu hình liên quan đến dữ liệu."""
     hf_id: str = "HuggingFaceM4/A-OKVQA"
     train_ratio: float = 0.85
-    freq_threshold: int = 3  # CẬP NHẬT: Ngưỡng lọc từ vựng để giảm nhiễu
+    freq_threshold: int = 3
     image_size: int = 224
     expand_rationales: bool = True
-
 
 @dataclass
 class ModelConfig:
@@ -29,12 +23,11 @@ class ModelConfig:
     use_pretrained_cnn: bool = True
     use_attention: bool = True
 
-
 @dataclass
 class TrainConfig:
     """Siêu tham số huấn luyện."""
-    epochs: int = 20
-    batch_size: int = 16  # CẬP NHẬT: Giảm xuống 16 để tránh lỗi OOM trên máy Mac
+    epochs: int = 5
+    batch_size: int = 16 
     learning_rate: float = 3e-4
     label_smoothing: float = 0.1
     grad_clip: float = 5.0
@@ -47,7 +40,9 @@ class TrainConfig:
     eta_min: float = 1e-6
     num_workers: int = 0
     pin_memory: bool = False
-
+    # CẬP NHẬT: Luôn gán giá trị mặc định để tránh lỗi khởi tạo
+    eval_every: int = 1       
+    warmup_epochs: int = 3    
 
 @dataclass
 class Config:
@@ -68,25 +63,23 @@ class Config:
             raw = yaml.safe_load(f)
 
         cfg = cls()
+        # Duyệt và gán giá trị từ file YAML vào các dataclass con
         if "seed" in raw: cfg.seed = raw["seed"]
         if "device" in raw: cfg.device = raw["device"]
         if "log_dir" in raw: cfg.log_dir = raw["log_dir"]
         if "ckpt_dir" in raw: cfg.ckpt_dir = raw["ckpt_dir"]
 
-        if "data" in raw:
-            for k, v in raw["data"].items():
-                if hasattr(cfg.data, k): setattr(cfg.data, k, v)
-        if "model" in raw:
-            for k, v in raw["model"].items():
-                if hasattr(cfg.model, k): setattr(cfg.model, k, v)
-        if "train" in raw:
-            for k, v in raw["train"].items():
-                if hasattr(cfg.train, k): setattr(cfg.train, k, v)
+        sections = {"data": cfg.data, "model": cfg.model, "train": cfg.train}
+        for section_name, section_obj in sections.items():
+            if section_name in raw:
+                for k, v in raw[section_name].items():
+                    if hasattr(section_obj, k):
+                        setattr(section_obj, k, v)
+        
         if "model_variants" in raw:
             cfg.model_variants = raw["model_variants"]
 
         return cfg
 
     def to_dict(self) -> dict:
-        """Chuyển đổi cấu hình sang dictionary."""
         return asdict(self)
