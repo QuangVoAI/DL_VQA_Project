@@ -1,9 +1,6 @@
-"""CLI script: Train all VQA model variants.
-
-Usage:
-    python scripts/train.py --config configs/default.yaml
-    python scripts/train.py --config configs/default.yaml --epochs 10 --lr 1e-3
-    python scripts/train.py --config configs/default.yaml --models M1_Scratch_NoAttn M4_Pretrained_Attn
+"""
+CLI script: Train VQA model variants.
+Hỗ trợ huấn luyện đồng thời nhiều biến thể (M1, M2, M3, M4) với cơ chế Spatial Attention.
 """
 
 from __future__ import annotations
@@ -11,9 +8,10 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import gc
 import random
 
-# Add project root to path
+# Thêm gốc dự án vào sys.path để nhận diện thư mục src
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
@@ -32,69 +30,34 @@ from src.utils.helpers import get_device, set_seed, setup_logging
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Train VQA models")
-    parser.add_argument("--config", type=str, default="configs/default.yaml",
-                        help="Path to YAML config file")
-    parser.add_argument("--epochs", type=int, default=None,
-                        help="Override number of epochs")
-    parser.add_argument("--lr", type=float, default=None,
-                        help="Override learning rate")
-    parser.add_argument("--batch-size", type=int, default=None,
-                        help="Override batch size")
-    parser.add_argument("--models", nargs="+", default=None,
-                        help="Specific model variants to train (default: all)")
-    parser.add_argument("--seed", type=int, default=None,
-                        help="Override random seed")
+    # ── 1. CẤU HÌNH ARGUMENTS ──
+    parser = argparse.ArgumentParser(description="VQA Training Script")
+    parser.add_argument("--config", type=str, default="configs/default.yaml", help="Path to config file")
+    parser.add_argument("--models", nargs="+", help="Specific model names to train (e.g., M4_Pretrained_Attn)")
+    parser.add_argument("--batch_size", type=int, help="Override batch size from config")
     args = parser.parse_args()
 
-    # ── Load config ──
+    # ── 2. KHỞI TẠO MÔI TRƯỜNG ──
     cfg = Config.from_yaml(args.config)
-    if args.epochs is not None:
-        cfg.train.epochs = args.epochs
-    if args.lr is not None:
-        cfg.train.learning_rate = args.lr
-    if args.batch_size is not None:
+    if args.batch_size:
         cfg.train.batch_size = args.batch_size
-    if args.seed is not None:
-        cfg.seed = args.seed
-
-    # ── Setup ──
+        
     set_seed(cfg.seed)
     logger = setup_logging(cfg.log_dir)
     device = get_device() if cfg.device == "auto" else torch.device(cfg.device)
-    logger.info(f"Config: {cfg}")
-    logger.info(f"Device: {device}")
 
-    # ── Transforms ──
-    transform_train = transforms.Compose([
-        transforms.Resize((cfg.data.image_size, cfg.data.image_size)),
-        transforms.RandomHorizontalFlip(),
-        transforms.ColorJitter(brightness=0.1, contrast=0.1),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-    ])
-    transform_eval = transforms.Compose([
-        transforms.Resize((cfg.data.image_size, cfg.data.image_size)),
-        transforms.ToTensor(),
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
-    ])
+    logger.info(f"Starting training on device: {device}")
+    logger.info(f"Batch size: {cfg.train.batch_size} | Freq Threshold: {cfg.data.freq_threshold}")
 
-    # ── Load data ──
-    logger.info("Loading A-OKVQA dataset ...")
+    # ── 3. TẢI VÀ TIỀN XỬ LÝ DỮ LIỆU ──
+    logger.info("Loading A-OKVQA dataset from HuggingFace...")
     hf_train = load_dataset(cfg.data.hf_id, split="train")
     hf_val = load_dataset(cfg.data.hf_id, split="validation")
 
-    # Build vocabularies
-    all_questions, all_answers = [], []
-    for item in tqdm(hf_train, desc="Collecting text"):
-        all_questions.append(item["question"])
-        rationales = item.get("rationales", [])
-        if rationales:
-            all_answers.extend(rationales)
-        else:
-            all_answers.append(extract_answer(item))
-    for item in hf_val:
-        all_questions.append(item["question"])
+    # Xây dựng Vocab (ưu tiên dùng rationales để sinh câu trả lời dài)
+    all_questions = [item["question"] for item in hf_train] + [item["question"] for item in hf_val]
+    all_answers = []
+    for item in (list(hf_train) + list(hf_val)):
         rationales = item.get("rationales", [])
         if rationales:
             all_answers.extend(rationales)
@@ -105,80 +68,100 @@ def main() -> None:
     question_vocab.build_vocabulary(all_questions)
     answer_vocab = Vocabulary(freq_threshold=cfg.data.freq_threshold)
     answer_vocab.build_vocabulary(all_answers)
-    logger.info(f"Vocab: Q={len(question_vocab)}, A={len(answer_vocab)}")
+    
+    logger.info(f"Vocab sizes: Question={len(question_vocab)}, Answer={len(answer_vocab)}")
 
-    # Split
+    # Chia tách dữ liệu (85% train / 15% val nội bộ)
     hf_train_list = list(hf_train)
     random.shuffle(hf_train_list)
     split_idx = int(len(hf_train_list) * cfg.data.train_ratio)
+    
     train_data_raw = hf_train_list[:split_idx]
     val_data = hf_train_list[split_idx:]
 
+    # Nhân bản dữ liệu với rationales (Cách 2)
     if cfg.data.expand_rationales:
         train_data = expand_data_with_rationales(train_data_raw)
-        logger.info(f"Data expansion: {len(train_data_raw)} → {len(train_data)}")
+        logger.info(f"Expanded training samples: {len(train_data_raw)} -> {len(train_data)}")
     else:
         train_data = train_data_raw
 
-    train_dataset = AOKVQA_Dataset(train_data, question_vocab, answer_vocab, transform_train)
-    val_dataset = AOKVQA_Dataset(val_data, question_vocab, answer_vocab, transform_eval)
+    # ── 4. CHUẨN BỊ DATALOADER ──
+    transform = transforms.Compose([
+        transforms.Resize((cfg.data.image_size, cfg.data.image_size)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+    ])
 
-    train_loader = DataLoader(train_dataset, batch_size=cfg.train.batch_size,
-                              shuffle=True, collate_fn=collate_fn,
-                              num_workers=cfg.train.num_workers,
-                              pin_memory=cfg.train.pin_memory)
-    val_loader = DataLoader(val_dataset, batch_size=cfg.train.batch_size,
-                            shuffle=False, collate_fn=collate_fn,
-                            num_workers=cfg.train.num_workers,
-                            pin_memory=cfg.train.pin_memory)
+    train_ds = AOKVQA_Dataset(train_data, question_vocab, answer_vocab, transform)
+    val_ds = AOKVQA_Dataset(val_data, question_vocab, answer_vocab, transform)
 
-    # GloVe
+    loader_kwargs = {
+        "batch_size": cfg.train.batch_size,
+        "collate_fn": collate_fn,
+        "num_workers": cfg.train.num_workers,
+        "pin_memory": cfg.train.pin_memory
+    }
+    train_loader = DataLoader(train_ds, shuffle=True, **loader_kwargs)
+    val_loader = DataLoader(val_ds, shuffle=False, **loader_kwargs)
+
+    # ── 5. TẢI GLOVE EMBEDDINGS ──
     download_glove()
-    q_glove = load_glove_embeddings(question_vocab)
-    a_glove = load_glove_embeddings(answer_vocab)
+    q_glove = load_glove_embeddings(question_vocab, cfg.model.embed_size)
+    a_glove = load_glove_embeddings(answer_vocab, cfg.model.embed_size)
 
-    # Save vocab
-    os.makedirs("data/processed", exist_ok=True)
-    torch.save({"question_vocab": question_vocab, "answer_vocab": answer_vocab},
-               "data/processed/vocab_aokvqa.pth")
+    # ── 6. VÒNG LẶP HUẤN LUYỆN CÁC BIẾN THỂ ──
+    variants_to_train = args.models or list(cfg.model_variants.keys())
+    
+    for name in variants_to_train:
+        logger.info(f"\n{'='*50}\nTraining Variant: {name}\n{'='*50}")
+        
+        # Giải phóng bộ nhớ trước khi nạp model mới (Đặc biệt quan trọng cho Mac/MPS)
+        gc.collect()
+        if device.type == "mps":
+            torch.mps.empty_cache()
+        elif device.type == "cuda":
+            torch.cuda.empty_cache()
 
-    # ── Train models ──
-    variants = args.models or list(cfg.model_variants.keys())
-    logger.info(f"Training variants: {variants}")
-
-    for name in variants:
-        if name not in cfg.model_variants:
-            logger.warning(f"Unknown variant: {name}, skipping.")
-            continue
-
+        # Khởi tạo model dựa trên config biến thể
         variant_cfg = cfg.model_variants[name]
         model = VQAModel(
-            len(question_vocab), len(answer_vocab),
+            q_vocab_size=len(question_vocab),
+            a_vocab_size=len(answer_vocab),
             embed_size=cfg.model.embed_size,
             hidden_size=cfg.model.hidden_size,
             num_layers=cfg.model.num_layers,
             dropout=cfg.model.dropout,
             q_pretrained_emb=q_glove,
             a_pretrained_emb=a_glove,
-            **variant_cfg,
+            **variant_cfg
         ).to(device)
 
-        n_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        logger.info(f"{name}: {n_params:,} trainable params")
+        # Lưu lại vocab để dùng cho inference sau này
+        os.makedirs(os.path.dirname("data/processed/vocab.pth"), exist_ok=True)
+        torch.save({"q_vocab": question_vocab, "a_vocab": answer_vocab}, "data/processed/vocab.pth")
 
+        # Gọi hàm train từ engine
         train_model(
-            model=model, name=name,
-            train_loader=train_loader, val_loader=val_loader,
-            answer_vocab=answer_vocab, device=device,
-            epochs=cfg.train.epochs, lr=cfg.train.learning_rate,
+            model=model,
+            name=name,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            answer_vocab=answer_vocab,
+            device=device,
+            epochs=cfg.train.epochs,
+            lr=cfg.train.learning_rate,
             ckpt_dir=cfg.ckpt_dir,
-            label_smoothing=cfg.train.label_smoothing,
             patience=cfg.train.patience,
-            grad_clip=cfg.train.grad_clip,
+            tf_end=cfg.train.tf_end,
+            eval_every=cfg.train.eval_every,
+            use_amp=False  # MPS không hỗ trợ tốt AMP
         )
+        
+        # Di chuyển model về CPU sau khi train xong để tiết kiệm VRAM cho biến thể tiếp theo
+        model.cpu()
 
-    logger.info("All training complete!")
-
+    logger.info("All training tasks completed successfully.")
 
 if __name__ == "__main__":
     main()

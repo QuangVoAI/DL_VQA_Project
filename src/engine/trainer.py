@@ -1,12 +1,9 @@
-"""Training pipeline with early stopping, checkpointing, and full metric logging."""
+"""Training pipeline with early stopping, checkpointing, and warmup."""
 
 from __future__ import annotations
-
 import logging
 import os
-import random
 from typing import Any, Optional
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -20,15 +17,8 @@ from src.utils.metrics import batch_metrics
 
 logger = logging.getLogger("VQA")
 
-
 class EarlyStopping:
-    """Stop training when the monitored metric stops improving.
-
-    Args:
-        patience: Number of epochs without improvement before stopping.
-        min_delta: Minimum change to qualify as improvement.
-    """
-
+    """Dừng huấn luyện nếu F1-score không cải thiện."""
     def __init__(self, patience: int = 5, min_delta: float = 1e-4) -> None:
         self.patience = patience
         self.min_delta = min_delta
@@ -36,7 +26,6 @@ class EarlyStopping:
         self.best_score: Optional[float] = None
 
     def __call__(self, score: float) -> bool:
-        """Returns True if training should stop."""
         if self.best_score is None or score > self.best_score + self.min_delta:
             self.best_score = score
             self.counter = 0
@@ -44,57 +33,25 @@ class EarlyStopping:
         self.counter += 1
         return self.counter >= self.patience
 
-
 def train_model(
-    model: nn.Module,
-    name: str,
-    train_loader: DataLoader,
-    val_loader: DataLoader,
-    answer_vocab: Any,
-    device: torch.device,
-    epochs: int = 20,
-    lr: float = 3e-4,
-    use_beam: bool = False,
-    beam_w: int = 5,
-    ckpt_dir: str = "checkpoints",
-    label_smoothing: float = 0.1,
-    patience: int = 5,
-    grad_clip: float = 5.0,
+    model: nn.Module, name: str, train_loader: DataLoader, val_loader: DataLoader,
+    answer_vocab: Any, device: torch.device, epochs: int = 20, lr: float = 3e-4,
+    use_beam: bool = False, beam_w: int = 5, ckpt_dir: str = "checkpoints",
+    label_smoothing: float = 0.1, patience: int = 5, grad_clip: float = 5.0,
+    tf_start: float = 1.0, tf_end: float = 0.5, warmup_epochs: int = 3,
+    eval_every: int = 1, use_amp: bool = False
 ) -> dict[str, list[float]]:
-    """Full training loop with Label Smoothing, Cosine Annealing, and Early Stopping.
-
-    Args:
-        model: VQAModel instance.
-        name: Model variant name (e.g. "M1_Scratch_NoAttn").
-        train_loader: Training DataLoader.
-        val_loader: Validation DataLoader.
-        answer_vocab: Answer Vocabulary for decoding.
-        device: Torch device.
-        epochs: Maximum number of training epochs.
-        lr: Initial learning rate.
-        use_beam: Use beam search for validation.
-        beam_w: Beam width.
-        ckpt_dir: Directory for saving checkpoints.
-        label_smoothing: Label smoothing factor.
-        patience: Early stopping patience.
-        grad_clip: Maximum gradient norm.
-
-    Returns:
-        History dict with all training metrics per epoch.
-    """
+    
     os.makedirs(ckpt_dir, exist_ok=True)
-
-    logger.info(f"\n{'=' * 70}")
-    logger.info(f"  TRAINING: {name}  epochs={epochs}  lr={lr}")
-    logger.info(f"  label_smoothing={label_smoothing}  patience={patience}  grad_clip={grad_clip}")
-    logger.info(f"{'=' * 70}")
-
     criterion = nn.CrossEntropyLoss(ignore_index=PAD_IDX, label_smoothing=label_smoothing)
     optimizer = optim.Adam(model.parameters(), lr=lr)
-    scheduler = CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
+    
+    # Cosine scheduler với Warmup
+    scheduler = CosineAnnealingLR(optimizer, T_max=epochs - warmup_epochs, eta_min=1e-6)
     stopper = EarlyStopping(patience=patience)
 
     best_f1: float = 0.0
+    last_metrics: dict[str, float] = {k: 0.0 for k in ["accuracy", "em", "f1", "meteor", "bleu4"]}
     history: dict[str, list[float]] = {
         "train_loss": [], "val_loss": [], "lr": [],
         "val_acc": [], "val_em": [], "val_f1": [], "val_meteor": [],
@@ -102,95 +59,77 @@ def train_model(
     }
 
     for epoch in range(1, epochs + 1):
-        tf = max(0.5, 1.0 - (epoch - 1) / epochs * 0.5)
+        # 1. Warmup & TF ratio calculation
+        if epoch <= warmup_epochs:
+            for g in optimizer.param_groups: g['lr'] = lr * (epoch / warmup_epochs)
+        
+        tf = max(tf_end, tf_start - (epoch - 1) / epochs * (tf_start - tf_end))
 
         # ── TRAIN ──
         model.train()
         running_loss = 0.0
-        pbar = tqdm(train_loader, desc=f"[{name}] Epoch {epoch}/{epochs} tf={tf:.2f}")
+        pbar = tqdm(train_loader, desc=f"[{name}] Ep {epoch}/{epochs} tf={tf:.2f}")
 
         for imgs, qs, ql, ans, al, _ in pbar:
-            imgs = imgs.to(device)
-            qs = qs.to(device)
-            ql = ql.to(device)
-            ans = ans.to(device)
-
-            optimizer.zero_grad()
+            imgs, qs, ql, ans = imgs.to(device), qs.to(device), ql.to(device), ans.to(device)
+            optimizer.zero_grad(set_to_none=True)
+            
             out = model(imgs, qs, ql, ans, tf_ratio=tf)
-            out = out.reshape(-1, out.size(-1))
-            tgt = ans[:, 1:].reshape(-1)
-            loss = criterion(out, tgt)
+            loss = criterion(out.reshape(-1, out.size(-1)), ans[:, 1:].reshape(-1))
+            
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
             optimizer.step()
             running_loss += loss.item()
-            pbar.set_postfix(loss=f"{loss.item():.4f}")
+            pbar.set_postfix(loss=f"{loss.item():.3f}")
 
         train_loss = running_loss / len(train_loader)
 
-        # ── VALIDATE ──
+        # ── VALIDATE (Every N Epochs) ──
+        do_full_eval = (epoch % eval_every == 0) or (epoch == epochs)
         model.eval()
         val_loss_sum = 0.0
         preds_all, refs_all = [], []
 
         with torch.no_grad():
             for imgs, qs, ql, ans, al, ans_txt in val_loader:
-                imgs = imgs.to(device)
-                qs = qs.to(device)
-                ql = ql.to(device)
-                ans = ans.to(device)
-
-                # Validation loss (teacher forcing = 0)
+                imgs, qs, ql, ans = imgs.to(device), qs.to(device), ql.to(device), ans.to(device)
                 out = model(imgs, qs, ql, ans, tf_ratio=0)
-                out_flat = out.reshape(-1, out.size(-1))
-                tgt = ans[:, 1:].reshape(-1)
-                val_loss_sum += criterion(out_flat, tgt).item()
+                val_loss_sum += criterion(out.reshape(-1, out.size(-1)), ans[:, 1:].reshape(-1)).item()
 
-                # Generation
-                gen = model.generate(imgs, qs, ql, use_beam=use_beam, beam_width=beam_w)
-                for i in range(gen.size(0)):
-                    preds_all.append(decode_sequence(gen[i].cpu().tolist(), answer_vocab))
-                    refs_all.append(ans_txt[i])
+                if do_full_eval:
+                    gen = model.generate(imgs, qs, ql, use_beam=use_beam, beam_width=beam_w)
+                    for i in range(gen.size(0)):
+                        preds_all.append(decode_sequence(gen[i].cpu().tolist(), answer_vocab))
+                        refs_all.append(ans_txt[i])
 
         val_loss = val_loss_sum / len(val_loader)
-        m = batch_metrics(preds_all, refs_all)
+        if do_full_eval:
+            m = batch_metrics(preds_all, refs_all)
+            last_metrics = m
+        else:
+            m = last_metrics # Dùng lại kết quả cũ để log
+
+        if epoch > warmup_epochs: scheduler.step()
         cur_lr = optimizer.param_groups[0]["lr"]
 
         # Record history
         history["train_loss"].append(train_loss)
         history["val_loss"].append(val_loss)
         history["lr"].append(cur_lr)
-        for k in ["val_acc", "val_em", "val_f1", "val_meteor",
-                   "val_bleu1", "val_bleu2", "val_bleu3", "val_bleu4"]:
+        for k in ["val_acc", "val_em", "val_f1", "val_meteor", "val_bleu1", "val_bleu2", "val_bleu3", "val_bleu4"]:
             metric_key = k.replace("val_", "").replace("acc", "accuracy")
             history[k].append(m[metric_key])
 
-        scheduler.step()
+        logger.info(f"  Ep {epoch:>2d} loss={train_loss:.3f}/{val_loss:.3f} F1={m['f1']:.3f} B4={m['bleu4']:.3f} lr={cur_lr:.1e}")
 
-        logger.info(
-            f"  Epoch {epoch:>2d}  loss={train_loss:.4f}/{val_loss:.4f}  "
-            f"Acc={m['accuracy']:.4f}  EM={m['em']:.4f}  F1={m['f1']:.4f}  "
-            f"METEOR={m['meteor']:.4f}  B4={m['bleu4']:.4f}  lr={cur_lr:.1e}"
-        )
-
-        # ── Checkpoint (best F1) ──
-        if m["f1"] > best_f1:
+        if do_full_eval and m["f1"] > best_f1:
             best_f1 = m["f1"]
-            path = os.path.join(ckpt_dir, f"best_{name}.pth")
-            torch.save({
-                "epoch": epoch,
-                "model": model.state_dict(),
-                "optimizer": optimizer.state_dict(),
-                "scheduler": scheduler.state_dict(),
-                "best_f1": best_f1,
-                "metrics": m,
-            }, path)
-            logger.info(f"    ★ checkpoint saved (F1={best_f1:.4f})")
+            torch.save({"epoch": epoch, "model": model.state_dict(), "best_f1": best_f1}, os.path.join(ckpt_dir, f"best_{name}.pth"))
+            logger.info(f"    ★ Saved best (F1={best_f1:.4f})")
 
-        # ── Early stopping ──
-        if stopper(m["f1"]):
-            logger.info(f"  Early stopping at epoch {epoch} (patience={stopper.patience})")
+        if do_full_eval and stopper(m["f1"]):
+            logger.info(f"  Early stopping at epoch {epoch}")
             break
 
-    logger.info(f"\n{name} done. Best F1 = {best_f1:.4f}\n")
     return history

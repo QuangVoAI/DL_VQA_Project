@@ -1,4 +1,4 @@
-"""Helper utilities: device, decode, seed, etc."""
+"""Helper utilities: device management, sequence decoding, seeding, and logging."""
 
 from __future__ import annotations
 
@@ -17,7 +17,9 @@ logger = logging.getLogger("VQA")
 
 
 def get_device() -> torch.device:
-    """Auto-detect best available device: CUDA → MPS → CPU."""
+    """
+    Tự động phát hiện thiết bị tốt nhất hiện có: CUDA (Nvidia) → MPS (Mac M1/M2/M3) → CPU.
+    """
     if torch.cuda.is_available():
         return torch.device("cuda")
     elif torch.backends.mps.is_available():
@@ -26,10 +28,8 @@ def get_device() -> torch.device:
 
 
 def set_seed(seed: int = 42) -> None:
-    """Set random seeds for reproducibility across all libraries.
-
-    Args:
-        seed: Random seed value.
+    """
+    Thiết lập seed ngẫu nhiên để đảm bảo tính tái lập kết quả trên tất cả các thư viện.
     """
     random.seed(seed)
     np.random.seed(seed)
@@ -41,22 +41,24 @@ def set_seed(seed: int = 42) -> None:
 
 
 def setup_logging(log_dir: str = "logs") -> logging.Logger:
-    """Set up logging to both file and console.
-
-    Args:
-        log_dir: Directory for log files.
-
-    Returns:
-        Configured logger instance.
+    """
+    Thiết lập hệ thống ghi log (logging) ra cả file và terminal.
     """
     os.makedirs(log_dir, exist_ok=True)
     vqa_logger = logging.getLogger("VQA")
     vqa_logger.setLevel(logging.INFO)
 
+    # Tránh tạo nhiều handler nếu hàm được gọi nhiều lần
     if not vqa_logger.handlers:
-        fh = logging.FileHandler(f"{log_dir}/vqa_{datetime.now():%Y%m%d_%H%M%S}.log")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        log_file = os.path.join(log_dir, f"vqa_{timestamp}.log")
+        
+        # Ghi log ra file
+        fh = logging.FileHandler(log_file)
         fh.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
         vqa_logger.addHandler(fh)
+        
+        # Ghi log ra console
         ch = logging.StreamHandler()
         ch.setFormatter(logging.Formatter("%(message)s"))
         vqa_logger.addHandler(ch)
@@ -65,21 +67,18 @@ def setup_logging(log_dir: str = "logs") -> logging.Logger:
 
 
 def decode_sequence(sequence: list[int], vocab: Any) -> str:
-    """Convert a list of token IDs back to a text string.
-
-    Stops at <EOS> and skips <PAD>/<SOS> tokens.
-
-    Args:
-        sequence: List of integer token IDs.
-        vocab: Vocabulary with itos mapping.
-
-    Returns:
-        Decoded text string.
+    """
+    Chuyển đổi danh sách các token ID thành chuỗi văn bản.
+    Dừng lại khi gặp token <EOS> và bỏ qua các token <PAD>/<SOS>.
     """
     tokens = []
     for idx in sequence:
-        if idx == vocab.stoi["<EOS>"]:
+        # Dừng decode nếu gặp token kết thúc câu
+        if idx == EOS_IDX:
             break
-        if idx not in (vocab.stoi["<PAD>"], vocab.stoi["<SOS>"]):
-            tokens.append(vocab.itos.get(idx, "<UNK>"))
+        # Chỉ lấy các từ thực tế (không lấy PAD hoặc SOS)
+        if idx not in (PAD_IDX, SOS_IDX):
+            word = vocab.itos.get(idx, "<UNK>")
+            tokens.append(word)
+    
     return " ".join(tokens)
