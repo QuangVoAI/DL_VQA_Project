@@ -26,8 +26,8 @@ class ModelConfig:
 @dataclass
 class TrainConfig:
     """Siêu tham số huấn luyện."""
-    epochs: int = 5
-    batch_size: int = 16 
+    epochs: int = 20
+    batch_size: int = 64 
     learning_rate: float = 3e-4
     label_smoothing: float = 0.1
     grad_clip: float = 5.0
@@ -38,19 +38,24 @@ class TrainConfig:
     tf_end: float = 0.5
     scheduler: str = "cosine"
     eta_min: float = 1e-6
-    num_workers: int = 0
-    pin_memory: bool = False
-    # CẬP NHẬT: Luôn gán giá trị mặc định để tránh lỗi khởi tạo
+    num_workers: int = 2
+    pin_memory: bool = True
     eval_every: int = 1       
     warmup_epochs: int = 3    
+    
+    rep_penalty: float = 1.2
+    min_gen_len: int = 5
+    use_amp: bool = True
 
 @dataclass
 class Config:
     """Cấu hình tổng hợp cho dự án."""
     seed: int = 42
     device: str = "auto"
-    log_dir: str = "logs"
-    ckpt_dir: str = "checkpoints"
+    
+    log_dir: str = "/kaggle/working/logs"
+    ckpt_dir: str = "/kaggle/working/checkpoints"
+    
     data: DataConfig = field(default_factory=DataConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     train: TrainConfig = field(default_factory=TrainConfig)
@@ -63,7 +68,6 @@ class Config:
             raw = yaml.safe_load(f)
 
         cfg = cls()
-        # Duyệt và gán giá trị từ file YAML vào các dataclass con
         if "seed" in raw: cfg.seed = raw["seed"]
         if "device" in raw: cfg.device = raw["device"]
         if "log_dir" in raw: cfg.log_dir = raw["log_dir"]
@@ -75,6 +79,9 @@ class Config:
                 for k, v in raw[section_name].items():
                     if hasattr(section_obj, k):
                         setattr(section_obj, k, v)
+                    else:
+                        # Thêm cảnh báo nếu có key trong YAML nhưng thiếu trong dataclass
+                        print(f"huộc tính '{k}' có trong YAML nhưng không tồn tại trong class {section_obj.__class__.__name__}")
         
         if "model_variants" in raw:
             cfg.model_variants = raw["model_variants"]
