@@ -17,7 +17,7 @@ class DataConfig:
 class ModelConfig:
     """Cấu hình kiến trúc mô hình."""
     embed_size: int = 300
-    hidden_size: int = 512
+    hidden_size: int = 256
     num_layers: int = 2
     dropout: float = 0.3
     use_pretrained_cnn: bool = True
@@ -27,20 +27,20 @@ class ModelConfig:
 class TrainConfig:
     """Siêu tham số huấn luyện."""
     epochs: int = 20
-    batch_size: int = 64 
+    batch_size: int = 32 
     learning_rate: float = 3e-4
     label_smoothing: float = 0.1
     grad_clip: float = 5.0
     patience: int = 7
-    beam_width: int = 5
+    beam_width: int = 10
     len_alpha: float = 0.6
     tf_start: float = 1.0
-    tf_end: float = 0.5
+    tf_end: float = 0.0
     scheduler: str = "cosine"
     eta_min: float = 1e-6
-    num_workers: int = 2
+    num_workers: int = 0
     pin_memory: bool = True
-    eval_every: int = 1       
+    eval_every: int = 2       
     warmup_epochs: int = 3    
     
     rep_penalty: float = 1.2

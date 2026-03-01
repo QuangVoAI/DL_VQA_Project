@@ -48,7 +48,7 @@ class AOKVQA_Dataset(Dataset):
 
     def __len__(self) -> int: return len(self.data)
 
-    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, str]:
+    def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, list[str], str]:
         item = self.data[index]
         try:
             image = item["image"]
@@ -61,17 +61,34 @@ class AOKVQA_Dataset(Dataset):
         
         if self.transform: image = self.transform(image)
 
-        q_vec = [SOS_IDX] + self.question_vocab.numericalize(item.get("question", "")) + [EOS_IDX]
+        q_str = item.get("question", "")
+        q_vec = [SOS_IDX] + self.question_vocab.numericalize(q_str) + [EOS_IDX]
         answer_text = extract_answer(item)
         ans_vec = [SOS_IDX] + self.answer_vocab.numericalize(answer_text) + [EOS_IDX]
 
-        return image, torch.tensor(q_vec), torch.tensor(ans_vec), answer_text
+        refs = item.get("rationales", [])
+        if not refs:
+            refs = item.get("direct_answers", [answer_text])
+
+        return image, torch.tensor(q_vec), torch.tensor(ans_vec), refs, q_str
 
 def collate_fn(batch):
-    images, questions, answers, answer_texts = zip(*batch)
+    images, questions, answers, answer_texts, raw_qs = zip(*batch)
     images = torch.stack(images, 0)
     q_lengths = torch.tensor([len(q) for q in questions])
     a_lengths = torch.tensor([len(a) for a in answers])
     questions = pad_sequence(list(questions), batch_first=True, padding_value=PAD_IDX)
     answers = pad_sequence(list(answers), batch_first=True, padding_value=PAD_IDX)
-    return images, questions, q_lengths, answers, a_lengths, list(answer_texts)
+    return images, questions, q_lengths, answers, a_lengths, list(answer_texts), list(raw_qs)
+
+# Giải mã chuỗi chỉ số thành câu văn bản
+def decode_sequence(seq, vocab):
+    """Giải mã một chuỗi chỉ số thành câu văn bản."""
+    words = []
+    for idx in seq:
+        word = vocab.itos.get(idx, "<UNK>")
+        if word == "<EOS>":
+            break
+        if word not in ("<PAD>", "<SOS>"):
+            words.append(word)
+    return " ".join(words)

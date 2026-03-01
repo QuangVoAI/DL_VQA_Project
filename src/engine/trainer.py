@@ -50,6 +50,11 @@ def train_model(
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs - warmup_epochs, eta_min=1e-6)
     stopper = EarlyStopping(patience=patience)
 
+    # 🟢 [CẬP NHẬT] GradScaler để dùng AMP (chống OOM)
+    # Chỉ bật nếu dùng CUDA (T4 GPU)
+    is_cuda = device.type == 'cuda'
+    scaler = torch.amp.GradScaler('cuda', enabled=(use_amp and is_cuda))
+
     best_f1: float = 0.0
     last_metrics: dict[str, float] = {k: 0.0 for k in ["accuracy", "em", "f1", "meteor", "bleu4"]}
     history: dict[str, list[float]] = {
@@ -63,42 +68,59 @@ def train_model(
         if epoch <= warmup_epochs:
             for g in optimizer.param_groups: g['lr'] = lr * (epoch / warmup_epochs)
         
-        tf = max(tf_end, tf_start - (epoch - 1) / epochs * (tf_start - tf_end))
+        # Exponential Decay Teacher Forcing (Mục 2)
+        import math
+        # tf = tf_start giảm mượt mà và tiến sát về tf_end ở những epoch cuối
+        decay_rate = 5.0 / epochs  # Đảm bảo đường cong phù hợp
+        tf = max(tf_end, tf_start * math.exp(-decay_rate * (epoch - 1)))
 
         # ── TRAIN ──
         model.train()
         running_loss = 0.0
         pbar = tqdm(train_loader, desc=f"[{name}] Ep {epoch}/{epochs} tf={tf:.2f}")
 
-        for imgs, qs, ql, ans, al, _ in pbar:
+        for imgs, qs, ql, ans, al, _, raw_qs in pbar:
             imgs, qs, ql, ans = imgs.to(device), qs.to(device), ql.to(device), ans.to(device)
             optimizer.zero_grad(set_to_none=True)
             
-            out = model(imgs, qs, ql, ans, tf_ratio=tf)
-            loss = criterion(out.reshape(-1, out.size(-1)), ans[:, 1:].reshape(-1))
+            # 🟢 [CẬP NHẬT] Bọc forward pass trong autocast
+            with torch.autocast('cuda', enabled=(use_amp and is_cuda)):
+                # Truyền raw_qs cho các mô hình nâng cao (nếu cần)
+                out = model(imgs, qs, ql, ans, tf_ratio=tf, raw_questions=raw_qs)
+                loss = criterion(out.reshape(-1, out.size(-1)), ans[:, 1:].reshape(-1))
             
-            loss.backward()
+            # 🟢 [CẬP NHẬT] Scaling loss trước khi backward
+            scaler.scale(loss).backward()
+            
+            # Unscale trước khi clip grad norm
+            scaler.unscale_(optimizer)
             nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
-            optimizer.step()
+            
+            # Cập nhật optimizer thông qua scaler
+            scaler.step(optimizer)
+            scaler.update()
+
             running_loss += loss.item()
             pbar.set_postfix(loss=f"{loss.item():.3f}")
 
         train_loss = running_loss / len(train_loader)
 
-        # ── VALIDATE (Every N Epochs) ──
+        # ── VALIDATE ──
         do_full_eval = (epoch % eval_every == 0) or (epoch == epochs)
         model.eval()
         val_loss_sum = 0.0
         preds_all, refs_all = [], []
 
         with torch.no_grad():
-            for imgs, qs, ql, ans, al, ans_txt in val_loader:
+            for imgs, qs, ql, ans, al, ans_txt, raw_qs in val_loader:
                 imgs, qs, ql, ans = imgs.to(device), qs.to(device), ql.to(device), ans.to(device)
-                out = model(imgs, qs, ql, ans, tf_ratio=0)
-                val_loss_sum += criterion(out.reshape(-1, out.size(-1)), ans[:, 1:].reshape(-1)).item()
+                
+                with torch.autocast('cuda', enabled=(use_amp and is_cuda)):
+                    out = model(imgs, qs, ql, ans, tf_ratio=0, raw_questions=raw_qs)
+                    val_loss_sum += criterion(out.reshape(-1, out.size(-1)), ans[:, 1:].reshape(-1)).item()
 
                 if do_full_eval:
-                    gen = model.generate(imgs, qs, ql, use_beam=use_beam, beam_width=beam_w)
+                    gen = model.generate(imgs, qs, ql, use_beam=use_beam, beam_width=beam_w, raw_questions=raw_qs)
                     for i in range(gen.size(0)):
                         preds_all.append(decode_sequence(gen[i].cpu().tolist(), answer_vocab))
                         refs_all.append(ans_txt[i])
@@ -108,18 +130,17 @@ def train_model(
             m = batch_metrics(preds_all, refs_all)
             last_metrics = m
         else:
-            m = last_metrics # Dùng lại kết quả cũ để log
+            m = last_metrics 
 
         if epoch > warmup_epochs: scheduler.step()
         cur_lr = optimizer.param_groups[0]["lr"]
 
-        # Record history
         history["train_loss"].append(train_loss)
         history["val_loss"].append(val_loss)
         history["lr"].append(cur_lr)
         for k in ["val_acc", "val_em", "val_f1", "val_meteor", "val_bleu1", "val_bleu2", "val_bleu3", "val_bleu4"]:
             metric_key = k.replace("val_", "").replace("acc", "accuracy")
-            history[k].append(m[metric_key])
+            history[k].append(m.get(metric_key, 0.0))
 
         logger.info(f"  Ep {epoch:>2d} loss={train_loss:.3f}/{val_loss:.3f} F1={m['f1']:.3f} B4={m['bleu4']:.3f} lr={cur_lr:.1e}")
 
