@@ -1,0 +1,106 @@
+"""Multi-seed training for statistical significance."""
+
+from __future__ import annotations
+import argparse
+import json
+import os
+import sys
+from collections import defaultdict
+from typing import Optional
+import numpy as np
+import torch
+import torchvision.transforms as transforms
+from torch.utils.data import DataLoader
+from tqdm.auto import tqdm
+from datasets import load_dataset
+import random
+import gc
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from src.config import Config
+from src.data.preprocessing import extract_answer, expand_data_with_rationales
+from src.data.dataset import Vocabulary, AOKVQA_Dataset, collate_fn
+from src.data.glove import download_glove, load_glove_embeddings
+from src.models.vqa_model import VQAModel
+from src.engine.trainer import train_model
+from src.engine.evaluator import evaluate_model
+from src.utils.helpers import get_device, set_seed, setup_logging
+
+def run_single_seed(cfg: Config, seed: int, device: torch.device, variants: list[str]) -> dict[str, dict[str, float]]:
+    """Chạy toàn bộ quy trình train + eval cho 1 seed cụ thể."""
+    set_seed(seed)
+    logger = setup_logging(cfg.log_dir)
+    logger.info(f"\n{'#' * 40}\n#  RUNNING SEED: {seed}\n{'#' * 40}")
+
+    # Transforms & Data Loading
+    transform_eval = transforms.Compose([
+        transforms.Resize((cfg.data.image_size, cfg.data.image_size)),
+        transforms.ToTensor(),
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225]),
+    ])
+
+    hf_train = load_dataset(cfg.data.hf_id, split="train")
+    hf_val = load_dataset(cfg.data.hf_id, split="validation")
+
+    # Build Vocab (Cố định threshold=3)
+    all_text = [item["question"] for item in hf_train] + [item["question"] for item in hf_val]
+    q_vocab = Vocabulary(freq_threshold=cfg.data.freq_threshold)
+    q_vocab.build_vocabulary(all_text)
+    
+    a_vocab = Vocabulary(freq_threshold=cfg.data.freq_threshold)
+    a_vocab.build_vocabulary([extract_answer(item) for item in hf_train])
+
+    # Shuffle & Split dựa trên seed hiện tại
+    train_list = list(hf_train)
+    random.shuffle(train_list)
+    split_idx = int(len(train_list) * cfg.data.train_ratio)
+    
+    train_ds = AOKVQA_Dataset(expand_data_with_rationales(train_list[:split_idx]), q_vocab, a_vocab, transform_eval)
+    val_ds = AOKVQA_Dataset(train_list[split_idx:], q_vocab, a_vocab, transform_eval)
+    test_ds = AOKVQA_Dataset(list(hf_val), q_vocab, a_vocab, transform_eval)
+
+    loader_args = {'batch_size': cfg.train.batch_size, 'collate_fn': collate_fn, 'num_workers': 0}
+    train_loader = DataLoader(train_ds, shuffle=True, **loader_args)
+    val_loader = DataLoader(val_ds, shuffle=False, **loader_args)
+    test_loader = DataLoader(test_ds, shuffle=False, **loader_args)
+
+    download_glove()
+    q_emb, a_emb = load_glove_embeddings(q_vocab), load_glove_embeddings(a_vocab)
+
+    seed_results = {}
+    for name in variants:
+        gc.collect()
+        if device.type == "mps": torch.mps.empty_cache()
+
+        model = VQAModel(len(q_vocab), len(a_vocab), q_pretrained_emb=q_emb, a_pretrained_emb=a_emb, **cfg.model_variants[name]).to(device)
+        
+        train_model(model, f"{name}_s{seed}", train_loader, val_loader, a_vocab, device, epochs=cfg.train.epochs, ckpt_dir=cfg.ckpt_dir)
+        
+        eval_res = evaluate_model(model, test_loader, a_vocab, q_vocab, device, cfg.ckpt_dir, f"{name}_s{seed}")
+        seed_results[name] = eval_res["metrics"]
+        
+    return seed_results
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", type=str, default="configs/default.yaml")
+    parser.add_argument("--n-seeds", type=int, default=3)
+    args = parser.parse_args()
+
+    cfg = Config.from_yaml(args.config)
+    device = get_device()
+    variants = list(cfg.model_variants.keys())
+    seeds = [42 + i * 100 for i in range(args.n_seeds)]
+
+    all_results = [run_single_seed(cfg, s, device, variants) for s in seeds]
+
+    # Tính toán thống kê
+    print("\n" + "="*80 + "\nSTATISTICAL RESULTS (Mean ± Std)\n" + "="*80)
+    for name in variants:
+        f1_vals = [res[name]['f1'] for res in all_results]
+        acc_vals = [res[name]['accuracy'] for res in all_results]
+        print(f"{name:<25}: F1={np.mean(f1_vals):.4f}±{np.std(f1_vals):.4f} | Acc={np.mean(acc_vals):.4f}±{np.std(acc_vals):.4f}")
+
+if __name__ == "__main__":
+    main()

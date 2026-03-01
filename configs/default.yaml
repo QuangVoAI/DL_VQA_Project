@@ -1,0 +1,62 @@
+# ═══════════════════════════════════════════════════════════════════
+# VQA Project — Default Configuration (Final Optimized)
+# ═══════════════════════════════════════════════════════════════════
+
+seed: 42
+device: "auto"          # auto | cuda | mps | cpu
+log_dir: "logs"
+ckpt_dir: "checkpoints"
+
+# ── Data ──
+data:
+  hf_id: "HuggingFaceM4/A-OKVQA"
+  train_ratio: 0.85                   # 85% train / 15% val from HF train split
+  freq_threshold: 3                   # min word frequency (lọc nhiễu cho rationale)
+  image_size: 224
+  expand_rationales: true             # 3× expansion using all rationales
+
+# ── Model ──
+model:
+  embed_size: 300                     # GloVe 300d
+  hidden_size: 512
+  num_layers: 2                       # 2-layer LSTM
+  dropout: 0.3
+  use_pretrained_cnn: true            # ResNet-18 ImageNet (overridden per variant)
+  use_attention: true                 # Spatial & Text attention (overridden per variant)
+
+# ── Training ──
+train:
+  epochs: 20
+  batch_size: 64
+  learning_rate: 3.0e-4
+  label_smoothing: 0.1
+  grad_clip: 5.0
+  patience: 7                         # Early stopping patience
+  beam_width: 5
+  len_alpha: 0.6                      # Wu et al. 2016 length penalty
+  rep_penalty: 1.2                    # Chống lặp từ khi sinh câu giải thích
+  min_gen_len: 5                      # Đảm bảo câu trả lời không quá ngắn
+  tf_start: 1.0                       # Teacher forcing start ratio
+  tf_end: 0.5                         # Teacher forcing end ratio
+  scheduler: "cosine"                 # Cosine annealing
+  eta_min: 1.0e-6
+  eval_every: 1                       # Đánh giá full metrics mỗi epoch
+  use_amp: false                      # Tắt AMP để tránh lỗi crash
+  num_workers: 0                      # 0 trên Windows/macOS (tránh lỗi multiprocessing)
+  pin_memory: false                   # Tắt pin_memory trên CPU/MPS
+  warmup_epochs: 3
+
+# ── Model Variants ──
+model_variants:
+  M1_Scratch_NoAttn:
+    use_pretrained_cnn: false
+    use_attention: false
+  M2_Scratch_Attn:
+    use_pretrained_cnn: false
+    use_attention: true
+  M3_Pretrained_NoAttn:
+    use_pretrained_cnn: true
+    use_attention: false
+  M4_Pretrained_Attn:
+    use_pretrained_cnn: true
+    use_attention: true
