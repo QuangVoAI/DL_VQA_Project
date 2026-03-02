@@ -44,7 +44,26 @@ def train_model(
     
     os.makedirs(ckpt_dir, exist_ok=True)
     criterion = nn.CrossEntropyLoss(ignore_index=PAD_IDX, label_smoothing=label_smoothing)
-    optimizer = optim.Adam(model.parameters(), lr=lr)
+    
+    # 🟢 [CẬP NHẬT] Differential Learning Rates
+    # Phân tách tham số thành 2 nhóm: Pretrained (ResNet) và Scratch (từ đầu)
+    pretrained_params = []
+    scratch_params = []
+    
+    if hasattr(model, 'image_encoder') and getattr(model.image_encoder, 'pretrained', False):
+        pretrained_params = list(model.image_encoder.get_pretrained_params())
+        
+        # Mọi thứ còn lại đưa vào nhóm đổi mới (scratch)
+        pretrained_ids = {id(p) for p in pretrained_params}
+        scratch_params = [p for p in model.parameters() if id(p) not in pretrained_ids]
+        
+        logger.info(f"[{name}] Using differential learning rates. Pretrained LR: {lr * 0.1:.1e}, Scratch LR: {lr:.1e}")
+        optimizer = optim.Adam([
+            {'params': pretrained_params, 'lr': lr * 0.1},
+            {'params': scratch_params, 'lr': lr}
+        ])
+    else:
+        optimizer = optim.Adam(model.parameters(), lr=lr)
     
     # Cosine scheduler với Warmup
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs - warmup_epochs, eta_min=1e-6)
@@ -66,7 +85,10 @@ def train_model(
     for epoch in range(1, epochs + 1):
         # 1. Warmup & TF ratio calculation
         if epoch <= warmup_epochs:
-            for g in optimizer.param_groups: g['lr'] = lr * (epoch / warmup_epochs)
+            for i, g in enumerate(optimizer.param_groups): 
+                # Nhóm 0 là Pretrained (nếu có), Nhóm 1 (hoặc 0) là Scratch
+                target_lr = lr * 0.1 if (len(optimizer.param_groups) > 1 and i == 0) else lr
+                g['lr'] = target_lr * (epoch / warmup_epochs)
         
         # Exponential Decay Teacher Forcing (Mục 2)
         import math

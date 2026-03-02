@@ -16,6 +16,10 @@ class CNNEncoder(nn.Module):
         super().__init__()
         self.pretrained = pretrained
         
+        # ImageNet standardization stats
+        self.register_buffer("mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 3, 1, 1))
+        self.register_buffer("std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
+        
         if pretrained:
             # DÙNG RESNET-50 THAY VÌ RESNET-18
             resnet = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
@@ -54,12 +58,31 @@ class CNNEncoder(nn.Module):
                         m.bias.requires_grad = False
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
+        if self.pretrained:
+            # Re-normalize just in case inputs are [0, 1] standard tensors
+            # This ensures stable inputs for the pretrained ResNet-50
+            if images.max() <= 1.0:
+                images = (images - self.mean) / self.std
+        
         features = self.cnn(images)  
         if self.pretrained:
             features = self.adaptive_pool(features) # Đưa về dạng 7x7
             features = self.proj(features)
         B, C, H, W = features.size()
         return features.view(B, C, H * W).permute(0, 2, 1)
+
+    def get_pretrained_params(self):
+        """Returns parameters belonging to the pretrained backbone."""
+        if self.pretrained:
+            return self.cnn.parameters()
+        return []
+
+    def get_scratch_params(self):
+        """Returns parameters that need to be learned from scratch."""
+        if self.pretrained:
+            # Everything except the CNN backbone
+            return self.proj.parameters()
+        return self.parameters()
 
 # ... (Lớp QuestionEncoder giữ nguyên như file của bạn) ...
 class QuestionEncoder(nn.Module):
