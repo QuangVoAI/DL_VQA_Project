@@ -255,11 +255,12 @@ The application is containerized with **Docker** and deployed on **AWS App Runne
 
 | Name | Student ID | Contact |
 |---|---|---|
-| Member 1 | 523H0178 | 523H0178@gmail.com |
-| Member 2 | 523H0173 | 523H0173@gmail.com |
+| Vo Xuan Quang | 523H0173 | 523H0173@student.tdtu.edu.vn & vxq123@icloud.com |
+| Hoang Xuan Thanh | 523H0178 | 523H0178@student.tdtu.edu.vn |
 
 ---
 
 ## 📄 License
 
 This project is developed for academic purposes as part of a Deep Learning course project.
+
