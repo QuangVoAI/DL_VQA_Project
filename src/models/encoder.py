@@ -21,17 +21,17 @@ class CNNEncoder(nn.Module):
         self.register_buffer("std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
         
         if pretrained:
-            # DÙNG RESNET-50 THAY VÌ RESNET-18
+            # Using RESNET-50
             resnet = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
             self.cnn = nn.Sequential(*list(resnet.children())[:-2]) 
             
             for p in list(self.cnn.parameters())[:-15]:
                 p.requires_grad = False
                 
-            # Đảm bảo output luôn có kích thước không gian = 7x7 (giống bản scratch)
+            # Ensure output always has spatial size = 7x7
             self.adaptive_pool = nn.AdaptiveAvgPool2d((7, 7))
                 
-            # LỚP NÉN: Giảm 2048 kênh của ResNet-50 xuống 512 kênh để tương thích với Decoder
+            # Project from 2048 channels of ResNet-50 to 512 channels for Decoder
             self.proj = nn.Conv2d(2048, self.CNN_OUT_DIM, kernel_size=1)
         else:
             self.cnn = nn.Sequential(
