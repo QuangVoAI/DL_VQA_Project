@@ -1,5 +1,3 @@
-"""CLI script: Run inference on images with trained VQA models."""
-
 import argparse
 import os
 import sys
@@ -12,13 +10,13 @@ from src.utils.helpers import get_device, decode_sequence
 class VQAInferencePipeline:
     def __init__(self, checkpoint_path, vocab_path, device_str="auto"):
         self.device = get_device() if device_str == "auto" else torch.device(device_str)
-        # Load vocab & model
+        # Load vocab and model
         ckpt = torch.load(checkpoint_path, map_location=self.device, weights_only=True)
-        # Khởi tạo model dựa trên state_dict hoặc config mặc định
-        # ... (Logic khởi tạo và load_state_dict)
+        # Initialize model based on state_dict or default config
+        # ... (Initialization and load_state_dict logic)
 
     def predict(self, image: Image.Image, question: str, beam_width: int = 5):
-        # ... (Logic tiền xử lý và gọi model.generate)
+        # ... (Preprocessing logic and call model.generate)
         return answer
 
 def main():

@@ -43,7 +43,7 @@ def run_single_seed(cfg: Config, seed: int, device: torch.device, variants: list
     hf_train = load_dataset(cfg.data.hf_id, split="train")
     hf_val = load_dataset(cfg.data.hf_id, split="validation")
 
-    # Build Vocab (Cố định threshold=3)
+    # Build Vocab (Fixed threshold=3)
     all_text = [item["question"] for item in hf_train] + [item["question"] for item in hf_val]
     q_vocab = Vocabulary(freq_threshold=cfg.data.freq_threshold)
     q_vocab.build_vocabulary(all_text)
@@ -51,7 +51,7 @@ def run_single_seed(cfg: Config, seed: int, device: torch.device, variants: list
     a_vocab = Vocabulary(freq_threshold=cfg.data.freq_threshold)
     a_vocab.build_vocabulary([extract_answer(item) for item in hf_train])
 
-    # Shuffle & Split dựa trên seed hiện tại
+    # Shuffle and Split based on current seed
     train_list = list(hf_train)
     random.shuffle(train_list)
     split_idx = int(len(train_list) * cfg.data.train_ratio)
@@ -95,7 +95,7 @@ def main() -> None:
 
     all_results = [run_single_seed(cfg, s, device, variants) for s in seeds]
 
-    # Tính toán thống kê
+    # Compute statistics
     print("\n" + "="*80 + "\nSTATISTICAL RESULTS (Mean ± Std)\n" + "="*80)
     for name in variants:
         f1_vals = [res[name]['f1'] for res in all_results]

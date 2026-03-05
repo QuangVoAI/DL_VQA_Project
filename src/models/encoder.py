@@ -21,17 +21,17 @@ class CNNEncoder(nn.Module):
         self.register_buffer("std", torch.tensor([0.229, 0.224, 0.225]).view(1, 3, 1, 1))
         
         if pretrained:
-            # DÙNG RESNET-50 THAY VÌ RESNET-18
+            # USE RESNET-50 INSTEAD OF RESNET-18
             resnet = models.resnet50(weights=models.ResNet50_Weights.DEFAULT)
             self.cnn = nn.Sequential(*list(resnet.children())[:-2]) 
             
             for p in list(self.cnn.parameters())[:-15]:
                 p.requires_grad = False
                 
-            # Đảm bảo output luôn có kích thước không gian = 7x7 (giống bản scratch)
+            # Ensure spatial output size = 7x7 (like scratch version)
             self.adaptive_pool = nn.AdaptiveAvgPool2d((7, 7))
                 
-            # LỚP NÉN: Giảm 2048 kênh của ResNet-50 xuống 512 kênh để tương thích với Decoder
+            # COMPRESSION LAYER: Reduce ResNet-50 channels from 2048 to 512 to match Decoder
             self.proj = nn.Conv2d(2048, self.CNN_OUT_DIM, kernel_size=1)
         else:
             self.cnn = nn.Sequential(
@@ -48,7 +48,7 @@ class CNNEncoder(nn.Module):
     def train(self, mode: bool = True):
         super().train(mode)
         if self.pretrained:
-            # Chặn cập nhật mean/var của BatchNorm trong ResNet để tránh phá hỏng weights đã train
+            # Block ResNet BatchNorm mean/var updates to avoid damaging trained weights
             for m in self.cnn.modules():
                 if isinstance(m, nn.BatchNorm2d):
                     m.eval()
@@ -66,7 +66,7 @@ class CNNEncoder(nn.Module):
         
         features = self.cnn(images)  
         if self.pretrained:
-            features = self.adaptive_pool(features) # Đưa về dạng 7x7
+            features = self.adaptive_pool(features) # Bring to 7x7
             features = self.proj(features)
         B, C, H, W = features.size()
         return features.view(B, C, H * W).permute(0, 2, 1)
@@ -84,7 +84,7 @@ class CNNEncoder(nn.Module):
             return self.proj.parameters()
         return self.parameters()
 
-# ... (Lớp QuestionEncoder giữ nguyên như file của bạn) ...
+# ... (QuestionEncoder class remains the same as your file) ...
 class QuestionEncoder(nn.Module):
     def __init__(self, vocab_size: int, embed_size: int = 300, hidden_size: int = 512, num_layers: int = 2, dropout: float = 0.3, pretrained_emb: Optional[torch.Tensor] = None) -> None:
         super().__init__()

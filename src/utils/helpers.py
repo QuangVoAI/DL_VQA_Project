@@ -48,17 +48,17 @@ def setup_logging(log_dir: str = "logs") -> logging.Logger:
     vqa_logger = logging.getLogger("VQA")
     vqa_logger.setLevel(logging.INFO)
 
-    # Tránh tạo nhiều handler nếu hàm được gọi nhiều lần
+    # Avoid creating multiple handlers if function is called multiple times
     if not vqa_logger.handlers:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         log_file = os.path.join(log_dir, f"vqa_{timestamp}.log")
         
-        # Ghi log ra file
+        # Log to file
         fh = logging.FileHandler(log_file)
         fh.setFormatter(logging.Formatter("%(asctime)s | %(levelname)s | %(message)s"))
         vqa_logger.addHandler(fh)
         
-        # Ghi log ra console
+        # Log to console
         ch = logging.StreamHandler()
         ch.setFormatter(logging.Formatter("%(message)s"))
         vqa_logger.addHandler(ch)
@@ -73,10 +73,10 @@ def decode_sequence(sequence: list[int], vocab: Any) -> str:
     """
     tokens = []
     for idx in sequence:
-        # Dừng decode nếu gặp token kết thúc câu
+        # Stop decoding upon encountering sentence end token
         if idx == EOS_IDX:
             break
-        # Chỉ lấy các từ thực tế (không lấy PAD hoặc SOS)
+        # Take only actual words (exclude PAD or SOS)
         if idx not in (PAD_IDX, SOS_IDX):
             word = vocab.itos.get(idx, "<UNK>")
             tokens.append(word)

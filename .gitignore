@@ -1,15 +1,15 @@
-# Loại bỏ toàn bộ thư mục checkpoints
+# Remove the entire checkpoints directory
 checkpoints/
 
-# Loại bỏ các file có đuôi cụ thể (ví dụ model weights)
+# Remove files with specific extensions (e.g. model weights)
 *.pth
 *.h5
 *.bin
 
-# Loại bỏ thư mục data
+# Remove the entire data directory
 data/
 
-# Loại bỏ các file ảnh lớn
+# Remove large image files
 *.webp
 *.jpg
 *.png

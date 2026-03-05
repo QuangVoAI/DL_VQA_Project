@@ -1,7 +1,7 @@
 """
 Advanced adapters for VQA:
-1. BertQuestionEncoder (Sử dụng Contextual Embeddings từ BERT thay thế GloVe)
-2. BUTD_FasterRCNN_Encoder (Trích xuất đặc trưng vùng - Region Features từ Faster R-CNN)
+1. BertQuestionEncoder (Using Contextual Embeddings from BERT instead of GloVe)
+2. BUTD_FasterRCNN_Encoder (Extracting đặc trưng vùng - Region Features from Faster R-CNN)
 """
 
 import torch
@@ -10,8 +10,8 @@ from typing import Optional, Tuple
 
 class BertQuestionEncoder(nn.Module):
     """
-    [Mục 3] Thay thế LSTM + GloVe bằng DistilBERT.
-    Bert sẽ đọc toàn bộ câu văn để mã hóa theo ngữ cảnh (Contextual Embeddings).
+    [Section 3] Replace LSTM + GloVe with DistilBERT.
+    Bert will read the entire sentence to encode contextually (Contextual Embeddings).
     """
     def __init__(self, hidden_size: int = 512, dropout: float = 0.3):
         super().__init__()
@@ -20,37 +20,37 @@ class BertQuestionEncoder(nn.Module):
             self.tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased')
             self.bert = DistilBertModel.from_pretrained('distilbert-base-uncased')
             
-            # Đóng băng khối BERT để tiết kiệm VRAM và tăng tốc huấn luyện (Khai thác pre-trained)
+            # Freeze BERT block to save VRAM and speed up training (Exploit pre-trained)
             for param in self.bert.parameters():
                 param.requires_grad = False
                 
-            # Chiếu từ không gian 768 chiều của DistilBERT xuống kích thước hidden_size của Decoder
+            # Project 768-dim DistilBERT space to Decoder's hidden_size
             self.proj = nn.Sequential(
                 nn.Linear(self.bert.config.hidden_size, hidden_size),
                 nn.LayerNorm(hidden_size),
                 nn.Dropout(dropout)
             )
         except ImportError:
-            raise ImportError("Lỗi! Để dùng BERT, hãy chạy lệnh: pip install transformers")
+            raise ImportError("Error! To use BERT, please run: pip install transformers")
 
     def forward(self, raw_questions: list[str], device: torch.device) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor], torch.Tensor]:
-        # Tokenize trực tiếp khi mảng Text chạy qua forward
+        # Tokenize directly when Text array passes through forward
         encoded = self.tokenizer(raw_questions, padding=True, truncation=True, return_tensors='pt', max_length=50)
         input_ids = encoded['input_ids'].to(device)
         attention_mask = encoded['attention_mask'].to(device)
         
-        # Đi qua mô hình BERT
+        # Pass through BERT model
         outputs = self.bert(input_ids, attention_mask=attention_mask)
         hidden_states = outputs.last_hidden_state  # (B, seq_len, 768)
         
-        # Ép kiểu chiều Decoder chuẩn
+        # Cast to standard Decoder shape
         projected = self.proj(hidden_states) # (B, seq_len, hidden_size)
         
-        # Lấy token đầu tiên (CLS token proxy ở DistilBert) làm vector tổng hợp ngữ nghĩa cho (h, c) của LSTM Decoder
+        # Take first token (CLS proxy in DistilBert) as semantic vector for LSTM Decoder's (h, c)
         cls_feat = projected[:, 0, :] # (B, hidden_size)
         
-        # Mô phỏng cấu trúc (h, c) 2 layers từ LSTM cũ để lắp ghép hoàn hảo với AnswerDecoder hiện tại
-        # Kích thước cần thiết: (num_layers, B, hidden_size) -> (2, B, 512)
+        # Simulate (h, c) 2-layer structure from old LSTM to perfectly match current AnswerDecoder
+        # Required shape: (num_layers, B, hidden_size) -> (2, B, 512)
         h = cls_feat.unsqueeze(0).repeat(2, 1, 1).contiguous()
         c = torch.zeros_like(h).to(device)
         
@@ -59,17 +59,17 @@ class BertQuestionEncoder(nn.Module):
 
 class BUTD_FasterRCNN_Encoder(nn.Module):
     """
-    [Mục 4] Bottom-Up Top-Down (BUTD) thay thế cho ResNet-50.
-    Sử dụng Faster R-CNN để khoanh vùng 36 vật thể đáng chú ý nhất thay vì chia ảnh thành không gian lưới 7x7 ngẫu nhiên.
+    [Section 4] Bottom-Up Top-Down (BUTD) replaces ResNet-50.
+    Using Faster R-CNN to extract 36 most notable objects from image instead of randomly splitting into 7x7 grid.
     """
     def __init__(self, out_dim: int = 512, max_regions: int = 36):
         super().__init__()
         import torchvision
-        # Load mô hình Faster R-CNN đã được train trên COCO (Hỗ trợ phát hiện chó, mèo, cốc, xe...)
+        # Load Faster R-CNN trained on COCO (Supports dog, cat, cup, car detection...)
         self.faster_rcnn = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights='DEFAULT')
         self.faster_rcnn.eval()
         
-        # Đóng băng tham số
+        # Freeze parameters
         for param in self.faster_rcnn.parameters():
             param.requires_grad = False
             
@@ -78,10 +78,8 @@ class BUTD_FasterRCNN_Encoder(nn.Module):
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         """
-        LƯU Ý DÀNH CHO BẠN:
-        Trích xuất RoI (Region of Interest) trực tiếp từ Torchvision cực kỳ tốn chi phí RAM lẫn thời gian train
-        do số lượng bounding boxes trên mỗi ảnh là không giống nhau.
-        Cách chuẩn SOTA: Bạn phải trích xuất (Extract Offline) trước thành các ma trận numpy (B, 36, 1024) 
-        lưu cứng xuống ổ đĩa, rồi lúc train chỉ việc đọc lên! 
+        NOTE: Extracting RoI (Region of Interest) directly from Torchvision is extremely expensive in terms of VRAM and training time
+        due to the number of bounding boxes on each image being different.
+        Standard SOTA approach: You must extract (Extract Offline) first into numpy arrays (B, 36, 1024) save to disk, then during training just read them up! 
         """
-        raise NotImplementedError("Để chạy full BUTD Pipeline mượt mà, nên tách riêng Feature Extractor ra chạy offline (thành file .npy/.h5) trên Kaggle trước khi đưa vào train LSTM.")
+        raise NotImplementedError("To run full BUTD Pipeline smoothly, you should extract (Extract Offline) first into numpy arrays (B, 36, 1024) save to disk, then during training just read them up!")

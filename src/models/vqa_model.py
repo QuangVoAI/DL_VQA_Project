@@ -80,24 +80,24 @@ class VQAModel(nn.Module):
                     pred, nh, nc = self.answer_decoder(tok, hh, cc, im, qo, qm)
                     lp = torch.log_softmax(pred, -1).squeeze(0)
                     
-                    # 🔴 HỆ THỐNG PHẠT LẶP TỪ NÂNG CAO (Advanced Repetition Penalty)
+                    # ADVANCED REPETITION PENALTY SYSTEM
                     if rep_penalty > 1.0:
                         from collections import Counter
                         counts = Counter(seq[1:])
                         for t_id, cnt in counts.items():
-                            # Phạt càng nặng nếu từ đó đã xuất hiện càng nhiều lần (Exponential penalty)
+                            # Exponential penalty for repeated words
                             penalty_factor = rep_penalty ** cnt
                             if lp[t_id] < 0:
                                 lp[t_id] *= penalty_factor
                             else:
                                 lp[t_id] /= penalty_factor
                                 
-                        # Phạt siêu nặng (x10) nếu rớt vào vòng lặp lảm nhảm 2 từ liên tiếp giống nhau
+                        # Heavy penalty (x10) for repeating the same word twice consecutively
                         if len(seq) > 1 and seq[-1] != SOS_IDX:
                             if lp[seq[-1]] < 0:
                                 lp[seq[-1]] *= (rep_penalty * 10)
                                 
-                    # Ngăn chặn việc ngắt câu quá sớm
+                    # Prevent premature sentence termination
                     if len(seq) < min_gen_len + 1:
                         lp[EOS_IDX] = -1e4
                         
@@ -109,10 +109,10 @@ class VQAModel(nn.Module):
                 cands.sort(key=lambda x: x[0] / _lp(len(x[1])), reverse=True)
                 beams = cands[:beam_width]
                 
-                # Chặn sớm nếu tất cả các tia (beams) đều đã chạy tới EOS
+                # Early stop if all beams reached EOS
                 if all(s[1][-1] == EOS_IDX for s in beams): break
                 
-            # Đẩy nốt các beam chưa chạm EOS vào list done
+            # Push remaining beams not at EOS into done list
             for sc, seq, _, _ in beams: 
                 if seq[-1] != EOS_IDX: seq.append(EOS_IDX)
                 done.append((sc / _lp(len(seq)), seq))

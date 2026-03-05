@@ -7,16 +7,16 @@ import torch
 from nltk.translate.bleu_score import SmoothingFunction, sentence_bleu
 from nltk.translate.meteor_score import meteor_score as _nltk_meteor
 
-# Thêm import cho Semantic Score
+# Add import for Semantic Score
 try:
     from sentence_transformers import SentenceTransformer, util
-    # Khởi tạo mô hình BERT nhẹ (chạy cực nhanh, tốn rất ít VRAM)
+    # Initialize light BERT model (very fast, low VRAM consumption)
     semantic_model = SentenceTransformer('all-MiniLM-L6-v2')
 except Exception as e:
     semantic_model = None
     print(f"Warning: Could not load SentenceTransformer. Semantic score will be 0. Error: {e}")
 
-# Sử dụng hàm chuẩn hóa mạnh mẽ đã có trong dự án của nhóm
+# Use powerful normalization function from the team's project
 from src.data.preprocessing import normalize_answer, majority_answer
 
 def compute_exact_match(pred: str, refs) -> float:
@@ -46,7 +46,7 @@ def compute_f1(pred: str, refs) -> float:
     return best_f1
 
 def compute_bleu(pred: str, refs) -> dict[str, float]:
-    """Tính BLEU từ 1 đến 4 sử dụng corpus-level refs."""
+    """Tính BLEU from 1 đến 4 sử dụng corpus-level refs."""
     if isinstance(refs, str): refs = [refs]
     smoothie = SmoothingFunction().method4
     p_toks = normalize_answer(pred).split()
@@ -79,7 +79,7 @@ def compute_meteor(pred: str, refs) -> float:
 def compute_vqa_accuracy(pred: str, direct_answers) -> float:
     """
     Tính VQA Accuracy mềm: min(#người_cùng_đáp_án / 3, 1.0).
-    Sử dụng cho các tập dữ liệu có nhiều người gắn nhãn (như A-OKVQA).
+    Using cho các tập dữ liệu có nhiều người gắn nhãn (như A-OKVQA).
     """
     if isinstance(direct_answers, str):
         return compute_exact_match(pred, direct_answers)
@@ -94,14 +94,14 @@ def compute_semantic_score(preds: list[str], refs: list) -> float:
         return 0.0
     
     clean_preds = [normalize_answer(p) for p in preds]
-    # Lấy the most representative string if it's a list for semantic comparison
+    # Take the most representative string if it's a list for semantic comparison
     clean_refs = [majority_answer(r) if isinstance(r, list) else normalize_answer(r) for r in refs]
     
-    # Mã hóa thành Vector (Embeddings)
+    # Encode to Vector (Embeddings)
     pred_embs = semantic_model.encode(clean_preds, convert_to_tensor=True, show_progress_bar=False)
     ref_embs = semantic_model.encode(clean_refs, convert_to_tensor=True, show_progress_bar=False)
     
-    # Tính ma trận độ lệch Cosine và lấy đường chéo (so sánh 1-1)
+    # Compute Cosine distance matrix and take diagonal (1-to-1 comparison)
     cosine_scores = util.cos_sim(pred_embs, ref_embs)
     scores = torch.diag(cosine_scores)
     
@@ -115,7 +115,7 @@ def batch_metrics(predictions: list[str], references: list) -> dict[str, float]:
     }
     
     for pred, ref in zip(predictions, references):
-        # Truyền toàn bộ list refs cho hàm compute_f1, compute_bleu để tối đa hóa điểm
+        # Pass full refs list to compute_f1, compute_bleu to maximize score
         results["accuracy"].append(compute_vqa_accuracy(pred, ref))
         results["em"].append(compute_exact_match(pred, ref))
         results["f1"].append(compute_f1(pred, ref))
@@ -125,10 +125,10 @@ def batch_metrics(predictions: list[str], references: list) -> dict[str, float]:
         for k, v in bleus.items():
             results[k].append(v)
             
-    # Tính trung bình các chỉ số truyền thống
+    # Average traditional metrics
     final_metrics = {k: float(np.mean(v)) for k, v in results.items()}
     
-    # Tính Semantic Score cho toàn bộ batch
+    # Compute Semantic Score for entire batch
     final_metrics["semantic"] = compute_semantic_score(predictions, references)
     
     return final_metrics

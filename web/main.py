@@ -45,8 +45,8 @@ state = VQAServerState()
 @app.on_event("startup")
 def load_models() -> None:
     """
-    Nạp artifact đã được tạo từ notebook: vqa_deploy_all_models.pth
-    Artifact cần có:
+    Load artifact created from notebook: vqa_deploy_all_models.pth
+    Artifact needs to have:
       - config
       - model_states: dict[name -> state_dict]
       - q_vocab, a_vocab
@@ -54,7 +54,7 @@ def load_models() -> None:
     artifact_path = "vqa_deploy_all_models.pth"
     if not os.path.exists(artifact_path):
         raise RuntimeError(
-            f"Không tìm thấy {artifact_path}. Hãy chạy cell notebook để tạo artifact trước."
+            f"Artifact not found at {artifact_path}. Please run the notebook cell to create the artifact."
         )
 
     artifact = torch.load(artifact_path, map_location=state.device, weights_only=False)
@@ -64,13 +64,13 @@ def load_models() -> None:
     state.a_vocab = artifact.get("a_vocab")
 
     if not cfg_dict or not model_states or state.q_vocab is None or state.a_vocab is None:
-        raise RuntimeError("Artifact không đầy đủ thông tin cần thiết để deploy.")
+        raise RuntimeError("Artifact does not have all the necessary information to deploy.")
 
-    # Lấy các cấu hình cần thiết trực tiếp từ dict
+    # Get the necessary configurations directly from the dict
     model_cfg = cfg_dict.get("model", {})
     model_variants: dict = cfg_dict.get("model_variants", {})
 
-    # Dựng lại từng model
+    # Reconstruct each model
     for name, variant_cfg in model_variants.items():
         if name not in model_states:
             continue
@@ -92,33 +92,33 @@ def load_models() -> None:
         state.models[name] = model
 
     if not state.models:
-        raise RuntimeError("Không có model nào được nạp từ artifact.")
+        raise RuntimeError("No models loaded from artifact.")
 
 
 @app.post("/v1/predict")
 async def predict(
-    question: str = Form(..., description="Câu hỏi VQA"),
+    question: str = Form(..., description="Question for VQA"),
     model_name: Optional[str] = Form(
         None,
         description=(
-            "Tên model: M1_Scratch_NoAttn, M2_Scratch_Attn, "
-            "M3_Pretrained_NoAttn, M4_Pretrained_Attn. Để trống sẽ chạy tất cả."
+            "Model name: M1_Scratch_NoAttn, M2_Scratch_Attn, "
+            "M3_Pretrained_NoAttn, M4_Pretrained_Attn. Leave empty to run all."
         ),
     ),
-    image: UploadFile = File(..., description="Ảnh input (JPEG/PNG)"),
+    image: UploadFile = File(..., description="Image input (JPEG/PNG)"),
 ) -> JSONResponse:
     if not state.models:
-        raise HTTPException(status_code=500, detail="Models chưa được nạp.")
+        raise HTTPException(status_code=500, detail="Models not loaded.")
 
     try:
         img_bytes = await image.read()
         pil_img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
     except Exception:
-        raise HTTPException(status_code=400, detail="Không đọc được file ảnh.")
+        raise HTTPException(status_code=400, detail="Failed to read image file.")
 
     img_tensor = state.transform(pil_img).unsqueeze(0).to(state.device)
 
-    # Chuẩn bị câu hỏi
+    # Prepare question
     q_tokens = (
         [state.q_vocab.stoi["<SOS>"]]
         + state.q_vocab.numericalize(question)
@@ -127,11 +127,11 @@ async def predict(
     q_tensor = torch.tensor(q_tokens).unsqueeze(0).to(state.device)
     q_len = torch.tensor([len(q_tokens)])
 
-    # Chọn model
+    # Select model
     target_models: Dict[str, VQAModel]
     if model_name:
         if model_name not in state.models:
-            raise HTTPException(status_code=400, detail="model_name không hợp lệ.")
+            raise HTTPException(status_code=400, detail="Invalid model_name.")
         target_models = {model_name: state.models[model_name]}
     else:
         target_models = state.models

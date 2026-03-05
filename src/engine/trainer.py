@@ -18,7 +18,7 @@ from src.utils.metrics import batch_metrics
 logger = logging.getLogger("VQA")
 
 class EarlyStopping:
-    """Dừng huấn luyện nếu F1-score không cải thiện."""
+    """Stop training if F1-score does not improve."""
     def __init__(self, patience: int = 5, min_delta: float = 1e-4) -> None:
         self.patience = patience
         self.min_delta = min_delta
@@ -45,15 +45,15 @@ def train_model(
     os.makedirs(ckpt_dir, exist_ok=True)
     criterion = nn.CrossEntropyLoss(ignore_index=PAD_IDX, label_smoothing=label_smoothing)
     
-    # 🟢 [CẬP NHẬT] Differential Learning Rates
-    # Phân tách tham số thành 2 nhóm: Pretrained (ResNet) và Scratch (từ đầu)
+    # 🟢 [UPDATE] Differential Learning Rates
+    # Split parameters into 2 groups: Pretrained (ResNet) and Scratch (from scratch)
     pretrained_params = []
     scratch_params = []
     
     if hasattr(model, 'image_encoder') and getattr(model.image_encoder, 'pretrained', False):
         pretrained_params = list(model.image_encoder.get_pretrained_params())
         
-        # Mọi thứ còn lại đưa vào nhóm đổi mới (scratch)
+        # Everything else goes to scratch group
         pretrained_ids = {id(p) for p in pretrained_params}
         scratch_params = [p for p in model.parameters() if id(p) not in pretrained_ids]
         
@@ -65,12 +65,12 @@ def train_model(
     else:
         optimizer = optim.Adam(model.parameters(), lr=lr)
     
-    # Cosine scheduler với Warmup
+    # Cosine scheduler with Warmup
     scheduler = CosineAnnealingLR(optimizer, T_max=epochs - warmup_epochs, eta_min=1e-6)
     stopper = EarlyStopping(patience=patience)
 
-    # 🟢 [CẬP NHẬT] GradScaler để dùng AMP (chống OOM)
-    # Chỉ bật nếu dùng CUDA (T4 GPU)
+    # 🟢 [UPDATE] GradScaler for AMP (prevents OOM)
+    # Enable only if using CUDA (T4 GPU)
     is_cuda = device.type == 'cuda'
     scaler = torch.amp.GradScaler('cuda', enabled=(use_amp and is_cuda))
 
@@ -83,17 +83,17 @@ def train_model(
     }
 
     for epoch in range(1, epochs + 1):
-        # 1. Warmup & TF ratio calculation
+        # Warmup & TF ratio calculation
         if epoch <= warmup_epochs:
             for i, g in enumerate(optimizer.param_groups): 
-                # Nhóm 0 là Pretrained (nếu có), Nhóm 1 (hoặc 0) là Scratch
+                # Group 0 is Pretrained (if any), Group 1 (or 0) is Scratch
                 target_lr = lr * 0.1 if (len(optimizer.param_groups) > 1 and i == 0) else lr
                 g['lr'] = target_lr * (epoch / warmup_epochs)
         
-        # Exponential Decay Teacher Forcing (Mục 2)
+        # Exponential Decay Teacher Forcing (Section 2)
         import math
-        # tf = tf_start giảm mượt mà và tiến sát về tf_end ở những epoch cuối
-        decay_rate = 5.0 / epochs  # Đảm bảo đường cong phù hợp
+        # tf = tf_start smoothly decreases to tf_end in the final epochs
+        decay_rate = 5.0 / epochs  # Ensure smooth curve
         tf = max(tf_end, tf_start * math.exp(-decay_rate * (epoch - 1)))
 
         # ── TRAIN ──
@@ -105,20 +105,20 @@ def train_model(
             imgs, qs, ql, ans = imgs.to(device), qs.to(device), ql.to(device), ans.to(device)
             optimizer.zero_grad(set_to_none=True)
             
-            # 🟢 [CẬP NHẬT] Bọc forward pass trong autocast
+            # Wrap forward pass in autocast
             with torch.autocast('cuda', enabled=(use_amp and is_cuda)):
-                # Truyền raw_qs cho các mô hình nâng cao (nếu cần)
+                # Pass raw_qs to advanced models (if needed)
                 out = model(imgs, qs, ql, ans, tf_ratio=tf, raw_questions=raw_qs)
                 loss = criterion(out.reshape(-1, out.size(-1)), ans[:, 1:].reshape(-1))
             
-            # 🟢 [CẬP NHẬT] Scaling loss trước khi backward
+            # Scaling loss before backward
             scaler.scale(loss).backward()
             
-            # Unscale trước khi clip grad norm
+            # Unscale before grad norm clip
             scaler.unscale_(optimizer)
             nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
             
-            # Cập nhật optimizer thông qua scaler
+            # Update optimizer through scaler
             scaler.step(optimizer)
             scaler.update()
 

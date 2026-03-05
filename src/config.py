@@ -6,7 +6,7 @@ import yaml
 
 @dataclass
 class DataConfig:
-    """Cấu hình liên quan đến dữ liệu."""
+    """Configuration related to data."""
     hf_id: str = "HuggingFaceM4/A-OKVQA"
     train_ratio: float = 0.85
     freq_threshold: int = 3
@@ -15,7 +15,7 @@ class DataConfig:
 
 @dataclass
 class ModelConfig:
-    """Cấu hình kiến trúc mô hình."""
+    """Configuration related to model architecture."""
     embed_size: int = 300
     hidden_size: int = 256
     num_layers: int = 2
@@ -25,7 +25,7 @@ class ModelConfig:
 
 @dataclass
 class TrainConfig:
-    """Siêu tham số huấn luyện."""
+    """Configuration related to training."""
     epochs: int = 20
     batch_size: int = 32 
     learning_rate: float = 3e-4
@@ -49,7 +49,7 @@ class TrainConfig:
 
 @dataclass
 class Config:
-    """Cấu hình tổng hợp cho dự án."""
+    """Configuration for the entire project."""
     seed: int = 42
     device: str = "auto"
     
@@ -63,7 +63,7 @@ class Config:
 
     @classmethod
     def from_yaml(cls, path: str) -> Config:
-        """Nạp cấu hình từ tệp YAML."""
+        """Load configuration from YAML file."""
         with open(path, "r", encoding="utf-8") as f:
             raw = yaml.safe_load(f)
 
@@ -80,8 +80,8 @@ class Config:
                     if hasattr(section_obj, k):
                         setattr(section_obj, k, v)
                     else:
-                        # Thêm cảnh báo nếu có key trong YAML nhưng thiếu trong dataclass
-                        print(f"huộc tính '{k}' có trong YAML nhưng không tồn tại trong class {section_obj.__class__.__name__}")
+                        # Add warning if key exists in YAML but is missing in dataclass
+                        print(f"Property '{k}' exists in YAML but not in class {section_obj.__class__.__name__}")
         
         if "model_variants" in raw:
             cfg.model_variants = raw["model_variants"]
