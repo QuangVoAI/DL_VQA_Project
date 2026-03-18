@@ -33,13 +33,13 @@ The project trains and compares **4 model variants** (M1–M4):
 |---|---|---|---|---|
 | **M1** | `M1_Scratch_NoAttn` | Trained from scratch | ❌ | Baseline CNN-LSTM |
 | **M2** | `M2_Scratch_Attn` | Trained from scratch | ✅ Spatial | Attention CNN-LSTM |
-| **M3** | `M3_Pretrained_NoAttn` | ResNet-18 (ImageNet) | ❌ | Pre-trained Vision |
-| **M4** | `M4_Pretrained_Attn` | ResNet-18 (ImageNet) | ✅ Spatial | **State of the Art** |
+| **M3** | `M3_Pretrained_NoAttn` | ResNet-50 (ImageNet) | ❌ | Pre-trained Vision |
+| **M4** | `M4_Pretrained_Attn` | ResNet-50 (ImageNet) | ✅ Spatial | **State of the Art** |
 
 ### Architecture Components
 
 ```
-Image ──► CNN Encoder (ResNet-18 / Scratch)
+Image ──► CNN Encoder (ResNet-50 / Scratch)
                     │
                     ▼
 Question ──► Question LSTM (2-layer, hidden=256)
